@@ -126,6 +126,8 @@ func realMain(ctx context.Context, logger *gcrcleaner.Logger) error {
 		return fmt.Errorf("failed to parse tag filter: %w", err)
 	}
 
+	podFilter := gcrcleaner.NewAssetPodFilter(repos)
+
 	keychain := gcrauthn.NewMultiKeychain(
 		bearerkeychain.New(*tokenPtr),
 		gcrauthn.DefaultKeychain,
@@ -175,7 +177,7 @@ func realMain(ctx context.Context, logger *gcrcleaner.Logger) error {
 	var errs []error
 	for i, repo := range repos {
 		fmt.Fprintf(stdout, "%s\n", repo)
-		deleted, err := cleaner.Clean(ctx, repo, since, *keepPtr, tagFilter, *dryRunPtr)
+		deleted, err := cleaner.Clean(ctx, repo, since, *keepPtr, tagFilter, podFilter, *dryRunPtr)
 		if err != nil {
 			errs = append(errs, err)
 		}

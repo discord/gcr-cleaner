@@ -21,11 +21,20 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/GoogleCloudPlatform/gcr-cleaner/internal/version"
+	"github.com/googleapis/gax-go/v2"
+
+	asset "cloud.google.com/go/asset/apiv1"
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/cloudresourcemanager/v1"
+	"google.golang.org/api/iterator"
+	assetpb "google.golang.org/genproto/googleapis/cloud/asset/v1"
+	"google.golang.org/grpc/codes"
 )
 
 const (
@@ -153,6 +162,40 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 		return nil, http.StatusBadRequest, fmt.Errorf("failed to build tag filter: %w", err)
 	}
 
+	// Get Project ID from Application Default Credentials
+	// https://stackoverflow.com/a/50365313
+	credentials, err := google.FindDefaultCredentials(ctx, cloudresourcemanager.CloudPlatformScope)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get default credentials: %w", err)
+	}
+	// Get Organization ID from Project ID
+	// https://stackoverflow.com/a/59753423
+	cloudresourcemanagerService, err := cloudresourcemanager.NewService(ctx)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create new cloudresourcemanager service: %w", err)
+	}
+	projectsService := cloudresourcemanagerService.Projects
+	projectID := credentials.ProjectID
+	if projectID == "" {
+		projectID = os.Getenv("GCP_PROJECT")
+	}
+	s.logger.Debug("getting project ancestry", "project", projectID)
+	ancestry, err := projectsService.GetAncestry(projectID, &cloudresourcemanager.GetAncestryRequest{}).Do()
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get project ancestry: %w", err)
+	}
+	organizationId := ""
+	for _, ancestor := range ancestry.Ancestor {
+		if ancestor.ResourceId.Type == "organization" {
+			organizationId = ancestor.ResourceId.Id
+			break
+		}
+	}
+	if organizationId == "" {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to organization id")
+	}
+	s.logger.Debug("getting project ancestry", "organization", organizationId)
+
 	// Gather all the repositories.
 	repos := make([]string, 0, len(p.Repos))
 	for _, v := range p.Repos {
@@ -160,6 +203,90 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 			repos = append(repos, t)
 		}
 	}
+
+	// List and collect container images
+	assetClient, err := asset.NewClient(ctx)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create new asset client: %w", err)
+	}
+	podFilter := NewAssetPodFilter(repos)
+	// gcloud beta asset list --organization=$ORGANIZATION_ID --asset-types='k8s.io/Pod' --content-type='resource' --format="value(resource.data.spec.containers.image)"
+	it := assetClient.ListAssets(ctx, &assetpb.ListAssetsRequest{
+		Parent:      fmt.Sprintf("organizations/%s", organizationId),
+		AssetTypes:  []string{"k8s.io/Pod"},
+		ContentType: assetpb.ContentType_RESOURCE,
+		PageSize:    1000,
+	},
+		gax.WithRetry(func() gax.Retryer {
+			return gax.OnCodes([]codes.Code{
+				codes.DeadlineExceeded,
+				codes.Unavailable,
+				codes.ResourceExhausted,
+			}, gax.Backoff{
+				Initial:    100 * time.Millisecond,
+				Max:        60000 * time.Millisecond,
+				Multiplier: 2,
+			})
+		}),
+	)
+	for true {
+		asset, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, http.StatusInternalServerError, fmt.Errorf("failed to list pods via cloudasset service: %w", err)
+		}
+		podData := asset.Resource.Data
+		containers := podData.Fields["spec"].GetStructValue().Fields["containers"].GetListValue()
+		for _, container := range containers.Values {
+			image := container.GetStructValue().Fields["image"].GetStringValue()
+			s.logger.Debug("getting GKE pod images", "image", image)
+			err := podFilter.Add(image)
+			if err != nil {
+				return nil, http.StatusInternalServerError, fmt.Errorf("failed to parse container image: %w", err)
+			}
+		}
+	}
+	// gcloud beta asset list --organization=$ORGANIZATION_ID --asset-types='run.googleapis.com/Service' --content-type='resource' --format="value(resource.data.spec.template.spec.containers.image)"
+	it = assetClient.ListAssets(ctx, &assetpb.ListAssetsRequest{
+		Parent:      fmt.Sprintf("organizations/%s", organizationId),
+		AssetTypes:  []string{"run.googleapis.com/Service"},
+		ContentType: assetpb.ContentType_RESOURCE,
+		PageSize:    1000,
+	},
+		gax.WithRetry(func() gax.Retryer {
+			return gax.OnCodes([]codes.Code{
+				codes.DeadlineExceeded,
+				codes.Unavailable,
+				codes.ResourceExhausted,
+			}, gax.Backoff{
+				Initial:    100 * time.Millisecond,
+				Max:        60000 * time.Millisecond,
+				Multiplier: 2,
+			})
+		}),
+	)
+	for true {
+		asset, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, http.StatusInternalServerError, fmt.Errorf("failed to list pods via cloudasset service: %w", err)
+		}
+		podData := asset.Resource.Data
+		containers := podData.Fields["spec"].GetStructValue().Fields["template"].GetStructValue().Fields["spec"].GetStructValue().Fields["containers"].GetListValue()
+		for _, container := range containers.Values {
+			image := container.GetStructValue().Fields["image"].GetStringValue()
+			s.logger.Debug("getting Cloud Run service images", "image", image)
+			err := podFilter.Add(image)
+			if err != nil {
+				return nil, http.StatusInternalServerError, fmt.Errorf("failed to parse container image: %w", err)
+			}
+		}
+	}
+
 	if p.Recursive {
 		s.logger.Debug("gathering child repositories recursively")
 
@@ -185,7 +312,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 	for _, repo := range repos {
 		s.logger.Info("deleting refs for repo", "repo", repo)
 
-		childrenDeleted, err := s.cleaner.Clean(ctx, repo, since, p.Keep, tagFilter, p.DryRun)
+		childrenDeleted, err := s.cleaner.Clean(ctx, repo, since, p.Keep, tagFilter, podFilter, p.DryRun)
 		if err != nil {
 			return nil, http.StatusBadRequest, fmt.Errorf("failed to clean repo %q: %w", repo, err)
 		}

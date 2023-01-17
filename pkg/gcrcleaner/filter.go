@@ -17,7 +17,74 @@ package gcrcleaner
 import (
 	"fmt"
 	"regexp"
+	"strings"
+
+	gcrname "github.com/google/go-containerregistry/pkg/name"
 )
+
+type PodFilter interface {
+	Add(image string) error
+	Matches(repo string, digest string, tags []string) bool
+}
+
+var _ PodFilter = (*AssetPodFilter)(nil)
+
+type AssetPodFilter struct {
+	images map[string][]string
+	repos  []string
+}
+
+func NewAssetPodFilter(repos []string) PodFilter {
+	return &AssetPodFilter{
+		images: map[string][]string{},
+		repos:  repos,
+	}
+}
+
+func (a *AssetPodFilter) Add(image string) error {
+	// Filter out in-use image references for repositories that we are not currently cleaning
+	repoMatches := false
+	for _, repo := range a.repos {
+		if strings.HasPrefix(image, repo) {
+			repoMatches = true
+			break
+		}
+	}
+	if !repoMatches {
+		return nil
+	}
+	ref, err := gcrname.ParseReference(image)
+	if err != nil {
+		return err
+	}
+	// Add in-use image reference to map with repo as string and digest/tag as values
+	repo, exists := a.images[ref.Context().String()]
+	if !exists {
+		repo = []string{}
+	}
+	repo = append(repo, ref.Identifier())
+	a.images[ref.Context().String()] = repo
+	return nil
+}
+
+func (a *AssetPodFilter) Matches(repo string, digest string, tags []string) bool {
+	if repoMatch, repoMatches := a.images[repo]; repoMatches {
+		for _, identifier := range repoMatch {
+			if identifier == "" {
+				continue
+			}
+			if strings.HasPrefix(digest, identifier) {
+				return true
+			}
+			for _, tag := range tags {
+				if identifier == tag {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
 
 // TagFilter is an interface which defines whether a given set of tags matches
 // the filter.
