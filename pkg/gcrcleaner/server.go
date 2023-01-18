@@ -225,7 +225,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 			}, gax.Backoff{
 				Initial:    100 * time.Millisecond,
 				Max:        60000 * time.Millisecond,
-				Multiplier: 2,
+				Multiplier: 1.30,
 			})
 		}),
 	)
@@ -263,7 +263,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 			}, gax.Backoff{
 				Initial:    100 * time.Millisecond,
 				Max:        60000 * time.Millisecond,
-				Multiplier: 2,
+				Multiplier: 1.30,
 			})
 		}),
 	)
