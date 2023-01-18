@@ -27,14 +27,12 @@ import (
 	"time"
 
 	"github.com/GoogleCloudPlatform/gcr-cleaner/internal/version"
-	"github.com/googleapis/gax-go/v2"
 
 	asset "cloud.google.com/go/asset/apiv1"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/cloudresourcemanager/v1"
 	"google.golang.org/api/iterator"
 	assetpb "google.golang.org/genproto/googleapis/cloud/asset/v1"
-	"google.golang.org/grpc/codes"
 )
 
 const (
@@ -216,19 +214,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 		AssetTypes:  []string{"k8s.io/Pod"},
 		ContentType: assetpb.ContentType_RESOURCE,
 		PageSize:    1000,
-	},
-		gax.WithRetry(func() gax.Retryer {
-			return gax.OnCodes([]codes.Code{
-				codes.DeadlineExceeded,
-				codes.Unavailable,
-				codes.ResourceExhausted,
-			}, gax.Backoff{
-				Initial:    100 * time.Millisecond,
-				Max:        60000 * time.Millisecond,
-				Multiplier: 1.30,
-			})
-		}),
-	)
+	})
 	for true {
 		asset, err := it.Next()
 		if err == iterator.Done {
@@ -254,19 +240,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 		AssetTypes:  []string{"run.googleapis.com/Service"},
 		ContentType: assetpb.ContentType_RESOURCE,
 		PageSize:    1000,
-	},
-		gax.WithRetry(func() gax.Retryer {
-			return gax.OnCodes([]codes.Code{
-				codes.DeadlineExceeded,
-				codes.Unavailable,
-				codes.ResourceExhausted,
-			}, gax.Backoff{
-				Initial:    100 * time.Millisecond,
-				Max:        60000 * time.Millisecond,
-				Multiplier: 1.30,
-			})
-		}),
-	)
+	})
 	for true {
 		asset, err := it.Next()
 		if err == iterator.Done {
