@@ -33,7 +33,7 @@ func TestBuildTagFilter(t *testing.T) {
 			name: "empty",
 			any:  "",
 			all:  "",
-			exp:  reflect.TypeOf(&TagFilterNull{}),
+			exp:  reflect.TypeOf(&ItemFilterNull{}),
 		},
 		{
 			name: "any_all",
@@ -45,13 +45,13 @@ func TestBuildTagFilter(t *testing.T) {
 			name: "any",
 			any:  "a",
 			all:  "",
-			exp:  reflect.TypeOf(&TagFilterAny{}),
+			exp:  reflect.TypeOf(&ItemFilterAny{}),
 		},
 		{
 			name: "all",
 			any:  "",
 			all:  "a",
-			exp:  reflect.TypeOf(&TagFilterAll{}),
+			exp:  reflect.TypeOf(&ItemFilterAll{}),
 		},
 	}
 
@@ -61,7 +61,7 @@ func TestBuildTagFilter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			f, err := BuildTagFilter(tc.any, tc.all)
+			f, err := BuildItemFilter(tc.any, tc.all)
 			if (err != nil) != tc.err {
 				t.Fatal(err)
 			}
@@ -119,7 +119,7 @@ func TestTagFilterAny_Matches(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			f := &TagFilterAny{re: tc.re}
+			f := &ItemFilterAny{re: tc.re}
 			if got, want := f.Matches(tc.tags), tc.exp; got != want {
 				t.Errorf("expected %q matches %q to be %t", tc.re, tc.tags, want)
 			}
@@ -174,7 +174,7 @@ func TestTagFilterAll_Matches(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			f := &TagFilterAll{re: tc.re}
+			f := &ItemFilterAll{re: tc.re}
 			if got, want := f.Matches(tc.tags), tc.exp; got != want {
 				t.Errorf("expected %q matches %q to be %t", tc.re, tc.tags, want)
 			}
