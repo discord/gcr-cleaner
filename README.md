@@ -179,3 +179,7 @@ environment variable `GCRCLEANER_CONCURRENCY` on the server. It defaults to 20.
 [container-registry]: https://cloud.google.com/container-registry
 [docker-hub]: https://hub.docker.com
 [go-re]: https://golang.org/pkg/regexp/syntax/
+
+
+# Testing
+You can build the test container and run it by running `docker-test.sh` from this directory.
