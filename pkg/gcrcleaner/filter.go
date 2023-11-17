@@ -86,17 +86,17 @@ func (a *AssetPodFilter) Matches(repo string, digest string, tags []string) bool
 	return false
 }
 
-// TagFilter is an interface which defines whether a given set of tags matches
+// ItemFilter is an interface which defines whether a a given string matches
 // the filter.
-type TagFilter interface {
+type ItemFilter interface {
 	Name() string
-	Matches(tags []string) bool
+	Matches(s []string) bool
 }
 
-// BuildTagFilter builds and compiles a new tag filter for the given inputs. All
+// BuildItemFilter builds and compiles a new filter for the given inputs. All
 // inputs are strings to be compiled to regular expressions and are mutually
 // exclusive.
-func BuildTagFilter(any, all string) (TagFilter, error) {
+func BuildItemFilter(any, all string) (ItemFilter, error) {
 	// Ensure only one tag filter type is given.
 	if any != "" && all != "" {
 		return nil, fmt.Errorf("only one tag filter type may be specified")
@@ -106,42 +106,42 @@ func BuildTagFilter(any, all string) (TagFilter, error) {
 	case any != "":
 		re, err := regexp.Compile(any)
 		if err != nil {
-			return nil, fmt.Errorf("failed to compile tag_filter_any regular expression %q: %w", any, err)
+			return nil, fmt.Errorf("failed to compile 'any' item filter regular expression %q: %w", any, err)
 		}
-		return &TagFilterAny{re}, nil
+		return &ItemFilterAny{re}, nil
 	case all != "":
 		re, err := regexp.Compile(all)
 		if err != nil {
-			return nil, fmt.Errorf("failed to compile tag_filter_all regular expression %q: %w", all, err)
+			return nil, fmt.Errorf("failed to compile 'all' item filter regular expression %q: %w", all, err)
 		}
-		return &TagFilterAll{re}, nil
+		return &ItemFilterAll{re}, nil
 	default:
 		// If no filters were provided, return the null filter which just returns
 		// false for all matches.
-		return &TagFilterNull{}, nil
+		return &ItemFilterNull{}, nil
 	}
 }
 
-var _ TagFilter = (*TagFilterNull)(nil)
+var _ ItemFilter = (*ItemFilterNull)(nil)
 
-// TagFilterNull always returns false.
-type TagFilterNull struct{}
+// ItemFilterNull always returns false.
+type ItemFilterNull struct{}
 
-func (f *TagFilterNull) Matches(tags []string) bool {
+func (f *ItemFilterNull) Matches(tags []string) bool {
 	return false
 }
 
-func (f *TagFilterNull) Name() string {
+func (f *ItemFilterNull) Name() string {
 	return "(none)"
 }
 
-// TagFilterAny filters based on the entire list. If any tag in the list
-// matches, it returns true. If no tags match, it returns false.
-type TagFilterAny struct {
+// ItemFilterAny filters based on the entire list. If any item in the list
+// matches, it returns true. If no items match, it returns false.
+type ItemFilterAny struct {
 	re *regexp.Regexp
 }
 
-func (f *TagFilterAny) Matches(tags []string) bool {
+func (f *ItemFilterAny) Matches(tags []string) bool {
 	if f.re == nil {
 		return false
 	}
@@ -153,23 +153,23 @@ func (f *TagFilterAny) Matches(tags []string) bool {
 	return false
 }
 
-func (f *TagFilterAny) Name() string {
+func (f *ItemFilterAny) Name() string {
 	return fmt.Sprintf("any(%s)", f.re.String())
 }
 
-var _ TagFilter = (*TagFilterAll)(nil)
+var _ ItemFilter = (*ItemFilterAll)(nil)
 
-// TagFilterAll filters based on the entire list. If all tags in the last match,
-// it returns true. If one more more tags do not match, it returns false.
-type TagFilterAll struct {
+// ItemFilterAll filters based on the entire list. If all items in the last match,
+// it returns true. If one more more items do not match, it returns false.
+type ItemFilterAll struct {
 	re *regexp.Regexp
 }
 
-func (f *TagFilterAll) Name() string {
+func (f *ItemFilterAll) Name() string {
 	return fmt.Sprintf("all(%s)", f.re.String())
 }
 
-func (f *TagFilterAll) Matches(tags []string) bool {
+func (f *ItemFilterAll) Matches(tags []string) bool {
 	if f.re == nil {
 		return false
 	}

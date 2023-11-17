@@ -48,6 +48,7 @@ var (
 	tokenPtr       = flag.String("token", os.Getenv("GCRCLEANER_TOKEN"), "Authentication token")
 	recursivePtr   = flag.Bool("recursive", false, "Clean all sub-repositories under the -repo root")
 	gracePtr       = flag.Duration("grace", 0, "Grace period")
+	repoSkipFilter = flag.String("repo-skip-filter", "", "Keep repos with names that match this regular expression")
 	tagFilterAny   = flag.String("tag-filter-any", "", "Delete images where any tag matches this regular expression")
 	tagFilterAll   = flag.String("tag-filter-all", "", "Delete images where all tags match this regular expression")
 	keepPtr        = flag.Int64("keep", 0, "Minimum to keep")
@@ -121,7 +122,12 @@ func realMain(ctx context.Context, logger *gcrcleaner.Logger) error {
 	}
 	sort.Strings(repos)
 
-	tagFilter, err := gcrcleaner.BuildTagFilter(*tagFilterAny, *tagFilterAll)
+	repoKeeper, err := gcrcleaner.BuildItemFilter(*repoSkipFilter, "")
+	if err != nil {
+		return fmt.Errorf("failed to parse repo keep filter: %w", err)
+	}
+
+	tagFilter, err := gcrcleaner.BuildItemFilter(*tagFilterAny, *tagFilterAll)
 	if err != nil {
 		return fmt.Errorf("failed to parse tag filter: %w", err)
 	}
@@ -177,7 +183,7 @@ func realMain(ctx context.Context, logger *gcrcleaner.Logger) error {
 	var errs []error
 	for i, repo := range repos {
 		fmt.Fprintf(stdout, "%s\n", repo)
-		deleted, err := cleaner.Clean(ctx, repo, since, *keepPtr, tagFilter, podFilter, *dryRunPtr)
+		deleted, err := cleaner.Clean(ctx, repo, since, *keepPtr, repoKeeper, tagFilter, podFilter, *dryRunPtr)
 		if err != nil {
 			errs = append(errs, err)
 		}

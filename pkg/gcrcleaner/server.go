@@ -155,7 +155,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 	}
 
 	since := time.Now().UTC().Add(sub)
-	tagFilter, err := BuildTagFilter(p.TagFilterAny, p.TagFilterAll)
+	tagFilter, err := BuildItemFilter(p.TagFilterAny, p.TagFilterAll)
 	if err != nil {
 		return nil, http.StatusBadRequest, fmt.Errorf("failed to build tag filter: %w", err)
 	}
