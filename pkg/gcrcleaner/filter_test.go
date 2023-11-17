@@ -181,3 +181,56 @@ func TestTagFilterAll_Matches(t *testing.T) {
 		})
 	}
 }
+
+func TestRepoSkipFilter_Matches(t *testing.T) {
+	t.Parallel()
+	repoPattern := "^sample-repo-name.*"
+
+	// Create the filter using the BuildItemFilter function
+	repoSkipFilter, err := BuildItemFilter(repoPattern, "")
+	if err != nil {
+		t.Fatalf("Error creating repoSkipFilter: %s", err)
+	}
+
+	// Verify that the filter is of the expected type (ItemFilter)
+	filter, ok := repoSkipFilter.(ItemFilter)
+	if !ok {
+		t.Fatalf("Expected repoSkipFilter to be an ItemFilter")
+	}
+
+	cases := []struct {
+		name     string
+		input    []string
+		expected bool
+	}{
+		{
+			name:     "Matches with exact repo name",
+			input:    []string{"sample-repo-name"},
+			expected: true,
+		},
+		{
+			name:     "Matches with repo name and additional characters",
+			input:    []string{"sample-repo-name-extra"},
+			expected: true,
+		},
+		{
+			name:     "Does not match with a different repo name",
+			input:    []string{"another-repo-name"},
+			expected: false,
+		},
+		{
+			name:     "Does not match with empty input",
+			input:    []string{""},
+			expected: false,
+		},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			actual := filter.Matches(test.input)
+			if actual != test.expected {
+				t.Errorf("Expected Matches(%v) to be %t, but got %t", test.input, test.expected, actual)
+			}
+		})
+	}
+}
