@@ -155,6 +155,11 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 	}
 
 	since := time.Now().UTC().Add(sub)
+	repoKeepFilter, err := BuildItemFilter(p.RepoKeepFilterAny, "")
+	if err != nil {
+		return nil, http.StatusBadRequest, fmt.Errorf("failed to build repo keep filter: %w", err)
+	}
+
 	tagFilter, err := BuildItemFilter(p.TagFilterAny, p.TagFilterAll)
 	if err != nil {
 		return nil, http.StatusBadRequest, fmt.Errorf("failed to build tag filter: %w", err)
@@ -286,7 +291,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 	for _, repo := range repos {
 		s.logger.Info("deleting refs for repo", "repo", repo)
 
-		childrenDeleted, err := s.cleaner.Clean(ctx, repo, since, p.Keep, tagFilter, podFilter, p.DryRun)
+		childrenDeleted, err := s.cleaner.Clean(ctx, repo, since, p.Keep, repoKeepFilter, tagFilter, podFilter, p.DryRun)
 		if err != nil {
 			return nil, http.StatusBadRequest, fmt.Errorf("failed to clean repo %q: %w", repo, err)
 		}
@@ -329,6 +334,12 @@ type Payload struct {
 
 	// Keep is the minimum number of images to keep.
 	Keep int64 `json:"keep"`
+
+	// RepoKeepFilterAny is a repository pattern to keep images for. If given, any
+	// image that matches this given regular expression will be kept. The image
+	// will be kept even if it has other tags that do not match the given regular
+	// expression.
+	RepoKeepFilterAny string `json:"repo_keep_filter"`
 
 	// TagFilterAny is the tags pattern to be allowed removing. If given, any
 	// image with at least one tag that matches this given regular expression will
