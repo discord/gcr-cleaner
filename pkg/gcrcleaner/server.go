@@ -160,9 +160,19 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 		return nil, http.StatusBadRequest, fmt.Errorf("failed to build repo keep filter: %w", err)
 	}
 
+	repoPrefixFilter, err := BuildItemFilter(p.RepoMatchPrefixFilter, "")
+	if err != nil {
+		return nil, http.StatusBadRequest, fmt.Errorf("failed to build repo prefix filter: %w", err)
+	}
+
 	tagFilter, err := BuildItemFilter(p.TagFilterAny, p.TagFilterAll)
 	if err != nil {
 		return nil, http.StatusBadRequest, fmt.Errorf("failed to build tag filter: %w", err)
+	}
+
+	tagKeepFilter, err := BuildItemFilter(p.TagKeepAny, "")
+	if err != nil {
+		return nil, http.StatusBadRequest, fmt.Errorf("failed to build tag keep filter: %w", err)
 	}
 
 	// Get Project ID from Application Default Credentials
@@ -291,7 +301,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 	for _, repo := range repos {
 		s.logger.Info("deleting refs for repo", "repo", repo)
 
-		childrenDeleted, err := s.cleaner.Clean(ctx, repo, since, p.Keep, repoKeepFilter, tagFilter, podFilter, p.DryRun)
+		childrenDeleted, err := s.cleaner.Clean(ctx, repo, since, p.Keep, repoKeepFilter, repoPrefixFilter, tagFilter, tagKeepFilter, podFilter, p.DryRun)
 		if err != nil {
 			return nil, http.StatusBadRequest, fmt.Errorf("failed to clean repo %q: %w", repo, err)
 		}
@@ -341,6 +351,12 @@ type Payload struct {
 	// expression.
 	RepoKeepFilterAny string `json:"repo_keep_filter"`
 
+	// RepoPrefixFilterAny is a repository pattern to delete images for. If given,
+	// any image that matches this given regular expression will be deleted if the
+	// tags are matched by the tag filter. This is used to target specific repositories
+	// or groups of repositories for deletion.
+	RepoMatchPrefixFilter string `json:"repository_match_prefix"`
+
 	// TagFilterAny is the tags pattern to be allowed removing. If given, any
 	// image with at least one tag that matches this given regular expression will
 	// be deleted. The image will be deleted even if it has other tags that do not
@@ -352,6 +368,12 @@ type Payload struct {
 	// The image will not be delete if it has other tags that do not match the
 	// given regular expression.
 	TagFilterAll string `json:"tag_filter_all"`
+
+	//TagKeepAny is the tags pattern to be allowed keeping. If given, any
+	// image with at least one tag that matches this given regular expression will
+	// be kept. The image will be kept even if it has other tags that do not
+	// match the given regular expression.
+	TagKeepAny string `json:"tag_keep_any"`
 
 	// DryRun instructs the server to not perform actual cleaning. The response
 	// will include repositories that would have been deleted.

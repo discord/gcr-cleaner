@@ -15,9 +15,13 @@
 package gcrcleaner
 
 import (
+	"os"
 	"reflect"
 	"regexp"
 	"testing"
+	"time"
+
+	gcrgoogle "github.com/google/go-containerregistry/pkg/v1/google"
 )
 
 func TestBuildTagFilter(t *testing.T) {
@@ -232,5 +236,213 @@ func TestRepoSkipFilter_Matches(t *testing.T) {
 				t.Errorf("Expected Matches(%v) to be %t, but got %t", test.input, test.expected, actual)
 			}
 		})
+	}
+}
+
+type mockManifest struct {
+	Repo   string
+	Digest string
+	Info   gcrgoogle.ManifestInfo
+}
+
+type mockFilter struct {
+	str   string
+	Items []string
+}
+
+func (f mockFilter) Name() string {
+	return "mockFilter"
+}
+
+func (f mockFilter) Matches(items []string) bool {
+	return false
+}
+
+type mockPodFilter struct{}
+
+func (f mockPodFilter) Name() string {
+	return "mockPodFilter"
+}
+
+func (f mockPodFilter) Matches(repo string, digest string, items []string) bool {
+	return false
+}
+
+func (f mockPodFilter) Add(item string) error {
+	return nil
+}
+
+func TestShouldDelete(t *testing.T) {
+	since := time.Date(2023, time.November, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		description      string
+		manifest         manifest
+		expectedToDelete bool
+	}{
+		{
+			description: "Should delete when manifest is older with matching repo and tag filter",
+			manifest: manifest{
+				Repo:   "gcr.io/example/repo",
+				Digest: "digest1",
+				Info: gcrgoogle.ManifestInfo{
+					Created:  time.Date(2023, time.October, 1, 0, 0, 0, 0, time.UTC),
+					Uploaded: time.Date(2023, time.October, 10, 0, 0, 0, 0, time.UTC),
+					Tags:     []string{"delete-1"},
+				},
+			},
+			expectedToDelete: true,
+		},
+		{
+			description: "Should not delete when manifest is too new",
+			manifest: manifest{
+				Repo:   "gcr.io/example/repo",
+				Digest: "digest2",
+				Info: gcrgoogle.ManifestInfo{
+					Created:  time.Date(2023, time.November, 5, 0, 0, 0, 0, time.UTC),
+					Uploaded: time.Date(2023, time.November, 16, 0, 0, 0, 0, time.UTC),
+					Tags:     []string{"main2"},
+				},
+			},
+			expectedToDelete: false,
+		},
+		{
+
+			description: "Should not delete when manifest is too new with matching repo and tag filter",
+			manifest: manifest{
+				Repo:   "gcr.io/example/repo",
+				Digest: "digest3",
+				Info: gcrgoogle.ManifestInfo{
+					Created:  time.Date(2023, time.November, 5, 0, 0, 0, 0, time.UTC),
+					Uploaded: time.Date(2023, time.November, 16, 0, 0, 0, 0, time.UTC),
+					Tags:     []string{"main3"},
+				},
+			},
+			expectedToDelete: false,
+		},
+		{
+			description: "Should not delete when manifest is older but does not match repo filter",
+			manifest: manifest{
+				Repo:   "gcr.io/other-repo",
+				Digest: "digest4",
+				Info: gcrgoogle.ManifestInfo{
+					Created:  time.Date(2023, time.October, 1, 0, 0, 0, 0, time.UTC),
+					Uploaded: time.Date(2023, time.October, 10, 0, 0, 0, 0, time.UTC),
+					Tags:     []string{"main4"},
+				},
+			},
+			expectedToDelete: false,
+		},
+		{
+			description: "Should not delete when manifest is older but does not match tag filter",
+			manifest: manifest{
+				Repo:   "gcr.io/example/repo",
+				Digest: "digest5",
+				Info: gcrgoogle.ManifestInfo{
+					Created:  time.Date(2023, time.October, 1, 0, 0, 0, 0, time.UTC),
+					Uploaded: time.Date(2023, time.October, 10, 0, 0, 0, 0, time.UTC),
+					Tags:     []string{"other-tag"},
+				},
+			},
+			expectedToDelete: false,
+		},
+		{
+			description: "Should not delete when manifest is older but does not match repo",
+			manifest: manifest{
+				Repo:   "gcr.io/other-repo",
+				Digest: "digest6",
+				Info: gcrgoogle.ManifestInfo{
+					Created:  time.Date(2023, time.October, 1, 0, 0, 0, 0, time.UTC),
+					Uploaded: time.Date(2023, time.October, 10, 0, 0, 0, 0, time.UTC),
+					Tags:     []string{"other-tag"},
+				},
+			},
+			expectedToDelete: false,
+		},
+		{
+			description: "Should delete when manifest is older with matching repo prefix and tag filter",
+			manifest: manifest{
+				Repo:   "gcr.io/example/repo",
+				Digest: "digest7",
+				Info: gcrgoogle.ManifestInfo{
+					Created:  time.Date(2023, time.October, 1, 0, 0, 0, 0, time.UTC),
+					Uploaded: time.Date(2023, time.October, 10, 0, 0, 0, 0, time.UTC),
+					Tags:     []string{"delete7"},
+				},
+			},
+			expectedToDelete: true,
+		},
+		{
+			description: "Should delete when manifest is older with matching repo and not tag keep filter",
+			manifest: manifest{
+				Repo:   "gcr.io/example/repo",
+				Digest: "digest8",
+				Info: gcrgoogle.ManifestInfo{
+					Created:  time.Date(2023, time.October, 1, 0, 0, 0, 0, time.UTC),
+					Uploaded: time.Date(2023, time.October, 10, 0, 0, 0, 0, time.UTC),
+					Tags:     []string{"delete8"},
+				},
+			},
+			expectedToDelete: true,
+		},
+		{
+			description: "Should not delete when manifest is older with matching repo and tag keep filter",
+			manifest: manifest{
+				Repo:   "gcr.io/example/repo",
+				Digest: "digest9",
+				Info: gcrgoogle.ManifestInfo{
+					Created:  time.Date(2023, time.October, 1, 0, 0, 0, 0, time.UTC),
+					Uploaded: time.Date(2023, time.October, 10, 0, 0, 0, 0, time.UTC),
+					Tags:     []string{"main9"},
+				},
+			},
+			expectedToDelete: false,
+		},
+	}
+
+	repoPrefixFilter, err := BuildItemFilter(`^(gcr\.io/example).*`, "")
+	if err != nil {
+		t.Fatalf("Error creating repoPrefixFilter: %s", err)
+	}
+
+	tagFilter, err := BuildItemFilter("delete.*", "")
+	if err != nil {
+		t.Fatalf("Error creating tagFilter: %s", err)
+	}
+
+	repoSkipFilter, err := BuildItemFilter("other-repo", "")
+	if err != nil {
+		t.Fatalf("Error creating repoSkipFilter: %s", err)
+	}
+
+	tagKeepFilter, err := BuildItemFilter("^main.*", "")
+	if err != nil {
+		t.Fatalf("Error creating tagKeepFilter: %s", err)
+	}
+
+	mockPodFilter := mockPodFilter{}
+	var (
+		stdout = os.Stdout
+		stderr = os.Stderr
+	)
+
+	for _, test := range tests {
+		logger := NewLogger("debug", stderr, stdout)
+		cleaner := &Cleaner{
+			logger: logger,
+		} // Initialize your Cleaner instance here
+		actualToDelete := cleaner.shouldDelete(
+			&test.manifest,
+			since,
+			repoSkipFilter,   // repoSkipFilter
+			repoPrefixFilter, // repoPrefixFilter
+			tagFilter,        // tagFilter
+			tagKeepFilter,    // tagKeepFilter
+			mockPodFilter,    // podFilter
+		)
+
+		if actualToDelete != test.expectedToDelete {
+			t.Errorf("%s: Expected deletion=%v, but got deletion=%v", test.description, test.expectedToDelete, actualToDelete)
+		}
 	}
 }

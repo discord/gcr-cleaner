@@ -45,16 +45,18 @@ var (
 var (
 	reposMap = make(map[string]struct{}, 4)
 
-	tokenPtr       = flag.String("token", os.Getenv("GCRCLEANER_TOKEN"), "Authentication token")
-	recursivePtr   = flag.Bool("recursive", false, "Clean all sub-repositories under the -repo root")
-	gracePtr       = flag.Duration("grace", 0, "Grace period")
-	repoSkipFilter = flag.String("repo-skip-filter", "", "Keep repos with names that match this regular expression")
-	tagFilterAny   = flag.String("tag-filter-any", "", "Delete images where any tag matches this regular expression")
-	tagFilterAll   = flag.String("tag-filter-all", "", "Delete images where all tags match this regular expression")
-	keepPtr        = flag.Int64("keep", 0, "Minimum to keep")
-	dryRunPtr      = flag.Bool("dry-run", false, "Do a noop on delete api call")
-	concurrencyPtr = flag.Int64("concurrency", 20, "Concurrent requests (defaults to number of CPUs)")
-	versionPtr     = flag.Bool("version", false, "Print version information and exit")
+	tokenPtr         = flag.String("token", os.Getenv("GCRCLEANER_TOKEN"), "Authentication token")
+	recursivePtr     = flag.Bool("recursive", false, "Clean all sub-repositories under the -repo root")
+	gracePtr         = flag.Duration("grace", 0, "Grace period")
+	repoSkipFilter   = flag.String("repo-skip-filter", "", "Keep repos with names that match this regular expression")
+	repoPrefixFilter = flag.String("repo-prefix-filter", "", "Delete only in repos with names that match this regular expression")
+	tagFilterAny     = flag.String("tag-filter-any", "", "Delete images where any tag matches this regular expression")
+	tagFilterAll     = flag.String("tag-filter-all", "", "Delete images where all tags match this regular expression")
+	tagKeepFilterAny = flag.String("tag-keep-filter", "", "Keep images where any tag matches this regular expression")
+	keepPtr          = flag.Int64("keep", 0, "Minimum to keep")
+	dryRunPtr        = flag.Bool("dry-run", false, "Do a noop on delete api call")
+	concurrencyPtr   = flag.Int64("concurrency", 20, "Concurrent requests (defaults to number of CPUs)")
+	versionPtr       = flag.Bool("version", false, "Print version information and exit")
 )
 
 func main() {
@@ -127,9 +129,19 @@ func realMain(ctx context.Context, logger *gcrcleaner.Logger) error {
 		return fmt.Errorf("failed to parse repo keep filter: %w", err)
 	}
 
+	repoPrefixFilter, err := gcrcleaner.BuildItemFilter(*repoSkipFilter, "")
+	if err != nil {
+		return fmt.Errorf("failed to parse repo prefix filter: %w", err)
+	}
+
 	tagFilter, err := gcrcleaner.BuildItemFilter(*tagFilterAny, *tagFilterAll)
 	if err != nil {
 		return fmt.Errorf("failed to parse tag filter: %w", err)
+	}
+
+	tagKeepFilter, err := gcrcleaner.BuildItemFilter(*tagKeepFilterAny, "")
+	if err != nil {
+		return fmt.Errorf("failed to parse tag keep filter: %w", err)
 	}
 
 	podFilter := gcrcleaner.NewAssetPodFilter(repos)
@@ -183,7 +195,7 @@ func realMain(ctx context.Context, logger *gcrcleaner.Logger) error {
 	var errs []error
 	for i, repo := range repos {
 		fmt.Fprintf(stdout, "%s\n", repo)
-		deleted, err := cleaner.Clean(ctx, repo, since, *keepPtr, repoKeeper, tagFilter, podFilter, *dryRunPtr)
+		deleted, err := cleaner.Clean(ctx, repo, since, *keepPtr, repoKeeper, repoPrefixFilter, tagFilter, tagKeepFilter, podFilter, *dryRunPtr)
 		if err != nil {
 			errs = append(errs, err)
 		}
