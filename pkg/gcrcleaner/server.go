@@ -159,21 +159,26 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 	if err != nil {
 		return nil, http.StatusBadRequest, fmt.Errorf("failed to build repo keep filter: %w", err)
 	}
+	s.logger.Debug("server: created repo keep filter", "filter", p.RepoKeepFilterAny)
 
 	repoPrefixFilter, err := BuildItemFilter(p.RepoMatchPrefixFilter, "")
 	if err != nil {
 		return nil, http.StatusBadRequest, fmt.Errorf("failed to build repo prefix filter: %w", err)
 	}
+	s.logger.Debug("server: created repo prefix filter", "filter", p.RepoMatchPrefixFilter)
 
 	tagFilter, err := BuildItemFilter(p.TagFilterAny, p.TagFilterAll)
 	if err != nil {
 		return nil, http.StatusBadRequest, fmt.Errorf("failed to build tag filter: %w", err)
 	}
+	s.logger.Debug("server: created tag filter any", "filter", p.TagFilterAny)
+	s.logger.Debug("server: created tag filter all", "filter", p.TagFilterAll)
 
 	tagKeepFilter, err := BuildItemFilter(p.TagKeepAny, "")
 	if err != nil {
 		return nil, http.StatusBadRequest, fmt.Errorf("failed to build tag keep filter: %w", err)
 	}
+	s.logger.Debug("server: created tag keep filter", "filter", p.TagKeepAny)
 
 	// Get Project ID from Application Default Credentials
 	// https://stackoverflow.com/a/50365313

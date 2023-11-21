@@ -128,21 +128,26 @@ func realMain(ctx context.Context, logger *gcrcleaner.Logger) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse repo keep filter: %w", err)
 	}
+	logger.Debug("CLI: created repo keep filter any", "filter", repoSkipFilter)
 
 	repoPrefixFilter, err := gcrcleaner.BuildItemFilter(*repoSkipFilter, "")
 	if err != nil {
 		return fmt.Errorf("failed to parse repo prefix filter: %w", err)
 	}
+	logger.Debug("CLI: created repo prefix filter any", "filter", repoSkipFilter)
 
 	tagFilter, err := gcrcleaner.BuildItemFilter(*tagFilterAny, *tagFilterAll)
 	if err != nil {
 		return fmt.Errorf("failed to parse tag filter: %w", err)
 	}
+	logger.Debug("CLI: created tag filter any", "filter", tagFilterAny)
+	logger.Debug("CLI: created tag filter all", "filter", tagFilterAll)
 
 	tagKeepFilter, err := gcrcleaner.BuildItemFilter(*tagKeepFilterAny, "")
 	if err != nil {
 		return fmt.Errorf("failed to parse tag keep filter: %w", err)
 	}
+	logger.Debug("CLI: created tag keep filter any", "filter", tagKeepFilterAny)
 
 	podFilter := gcrcleaner.NewAssetPodFilter(repos)
 
