@@ -400,7 +400,7 @@ func TestShouldDelete(t *testing.T) {
 		},
 	}
 
-	repoPrefixFilter, err := BuildItemFilter(`^(gcr\.io/example).*`, "")
+	repoPrefixFilter, err := BuildItemFilter(`^gcr.io.example.*`, "")
 	if err != nil {
 		t.Fatalf("Error creating repoPrefixFilter: %s", err)
 	}

@@ -105,12 +105,14 @@ func BuildItemFilter(any, all string) (ItemFilter, error) {
 	switch {
 	case any != "":
 		re, err := regexp.Compile(any)
+		fmt.Println(`regex expression any: `, re)
 		if err != nil {
 			return nil, fmt.Errorf("failed to compile 'any' item filter regular expression %q: %w", any, err)
 		}
 		return &ItemFilterAny{re}, nil
 	case all != "":
 		re, err := regexp.Compile(all)
+		fmt.Println(`regex expression all: `, re)
 		if err != nil {
 			return nil, fmt.Errorf("failed to compile 'all' item filter regular expression %q: %w", all, err)
 		}
