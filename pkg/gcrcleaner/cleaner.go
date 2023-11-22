@@ -376,8 +376,7 @@ func (c *Cleaner) shouldDelete(m *manifest, since time.Time, repoSkipFilter Item
 	// and the repository matches the given filter, then this is a deletion
 	// The default tag filter is to reject all strings.
 	// The default repo filter is to accept all strings.
-	// The default tag keep filter is to accept all strings.
-	if tagFilter.Matches(m.Info.Tags) && repoPrefixFilter.Matches([]string{m.Repo}) && !tagKeepFilter.Matches(m.Info.Tags) {
+	if (tagFilter.Matches(m.Info.Tags) || repoPrefixFilter.Matches([]string{m.Repo})) && !tagKeepFilter.Matches(m.Info.Tags) {
 		c.logger.Debug("should delete",
 			"repo", m.Repo,
 			"digest", m.Digest,
