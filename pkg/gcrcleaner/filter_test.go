@@ -334,7 +334,7 @@ func TestShouldDelete(t *testing.T) {
 			expectedToDelete: false,
 		},
 		{
-			description: "Should not delete when manifest is older but does not match tag filter",
+			description: "Should delete when manifest is older and matches repo prefix filter",
 			manifest: manifest{
 				Repo:   "gcr.io/example/repo",
 				Digest: "digest5",
@@ -344,10 +344,10 @@ func TestShouldDelete(t *testing.T) {
 					Tags:     []string{"other-tag"},
 				},
 			},
-			expectedToDelete: false,
+			expectedToDelete: true,
 		},
 		{
-			description: "Should not delete when manifest is older but does not match repo",
+			description: "Should not delete when manifest is older but does not match repo or tag filter",
 			manifest: manifest{
 				Repo:   "gcr.io/other-repo",
 				Digest: "digest6",
