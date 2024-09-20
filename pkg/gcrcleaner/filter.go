@@ -42,7 +42,7 @@ func NewAssetPodFilter(repos []string) PodFilter {
 }
 
 func (a *AssetPodFilter) Add(image string) error {
-	// Filter out in-use image references for repositories that we are not currently cleaning
+	// Filter in-use image references to repositories that we are currently cleaning
 	repoMatches := false
 	for _, repo := range a.repos {
 		if strings.HasPrefix(image, repo) {
