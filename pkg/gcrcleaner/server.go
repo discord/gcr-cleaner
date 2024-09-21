@@ -246,7 +246,7 @@ FROM (
       )
     END
     AS containers
-  FROM path_to_prod_metrics.running_images
+  FROM discord-security.path_to_prod_metrics.running_images
   WHERE readTime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 day)
 ), UNNEST(containers) AS container;`
 
