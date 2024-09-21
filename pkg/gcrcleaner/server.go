@@ -21,18 +21,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
+	"cloud.google.com/go/bigquery"
+
 	"github.com/GoogleCloudPlatform/gcr-cleaner/internal/version"
 
-	asset "cloud.google.com/go/asset/apiv1"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/cloudresourcemanager/v1"
 	"google.golang.org/api/iterator"
-	assetpb "google.golang.org/genproto/googleapis/cloud/asset/v1"
 )
 
 const (
@@ -143,7 +142,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 		return nil, 500, fmt.Errorf("failed to decode payload as JSON: %w", err)
 	}
 
-	s.logger.Debug("starting clean request",
+	s.logger.Info("starting clean request",
 		"version", version.HumanVersion,
 		"payload", p)
 
@@ -186,33 +185,6 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 	if err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get default credentials: %w", err)
 	}
-	// Get Organization ID from Project ID
-	// https://stackoverflow.com/a/59753423
-	cloudresourcemanagerService, err := cloudresourcemanager.NewService(ctx)
-	if err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create new cloudresourcemanager service: %w", err)
-	}
-	projectsService := cloudresourcemanagerService.Projects
-	projectID := credentials.ProjectID
-	if projectID == "" {
-		projectID = os.Getenv("GCP_PROJECT")
-	}
-	s.logger.Debug("getting project ancestry", "project", projectID)
-	ancestry, err := projectsService.GetAncestry(projectID, &cloudresourcemanager.GetAncestryRequest{}).Do()
-	if err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get project ancestry: %w", err)
-	}
-	organizationId := ""
-	for _, ancestor := range ancestry.Ancestor {
-		if ancestor.ResourceId.Type == "organization" {
-			organizationId = ancestor.ResourceId.Id
-			break
-		}
-	}
-	if organizationId == "" {
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to organization id")
-	}
-	s.logger.Debug("getting project ancestry", "organization", organizationId)
 
 	// Gather all the repositories.
 	repos := make([]string, 0, len(p.Repos))
@@ -222,64 +194,76 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 		}
 	}
 
-	// List and collect container images
-	assetClient, err := asset.NewClient(ctx)
-	if err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create new asset client: %w", err)
-	}
+	// List and collect container images from GKE pods and Cloud Run services that were seen in the past week.
+	// We pull this from Cloud Asset Inventory data exported to BigQuery, because calling the CAI API directly is too slow.
+	s.logger.Info("fetching recently seen container images from BigQuery...")
+
 	podFilter := NewAssetPodFilter(repos)
-	// gcloud beta asset list --organization=$ORGANIZATION_ID --asset-types='k8s.io/Pod' --content-type='resource' --format="value(resource.data.spec.containers.image)"
-	it := assetClient.ListAssets(ctx, &assetpb.ListAssetsRequest{
-		Parent:      fmt.Sprintf("organizations/%s", organizationId),
-		AssetTypes:  []string{"k8s.io/Pod"},
-		ContentType: assetpb.ContentType_RESOURCE,
-		PageSize:    1000,
-	})
-	for true {
-		asset, err := it.Next()
+
+	recentlySeenImagesQuery := `SELECT DISTINCT JSON_VALUE(container, '$.image') as image
+FROM (
+  SELECT
+    CASE asset_type
+      WHEN "k8s.io/Pod" THEN ARRAY_CONCAT(
+        JSON_QUERY_ARRAY(
+          resource.data,'$.spec.containers'
+        ),
+        JSON_QUERY_ARRAY(
+          resource.data,'$.spec.initContainers'
+        )
+      )
+      WHEN "run.googleapis.com/Service" THEN JSON_QUERY_ARRAY(
+        resource.data,'$.spec.template.spec.containers'
+      )
+      WHEN "run.googleapis.com/Job" THEN JSON_QUERY_ARRAY(
+        resource.data,'$.spec.template.spec.template.spec.containers'
+      )
+    END
+    AS containers
+  FROM discord-security.path_to_prod_metrics.running_images
+  WHERE readTime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 day)
+), UNNEST(containers) AS container;`
+
+	bigQueryClient, err := bigquery.NewClient(ctx, credentials.ProjectID)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create new BigQuery client: %w", err)
+	}
+
+	query := bigQueryClient.Query(recentlySeenImagesQuery)
+	query.Location = "US" // Location must match that of the dataset(s) referenced in the query.
+	queryIterator, err := query.Read(ctx)
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get query results from BigQuery: %w", err)
+	}
+
+	for {
+		var values []bigquery.Value
+		err := queryIterator.Next(&values)
 		if err == iterator.Done {
 			break
 		}
 		if err != nil {
-			return nil, http.StatusInternalServerError, fmt.Errorf("failed to list pods via cloudasset service: %w", err)
+			return nil, http.StatusInternalServerError, fmt.Errorf("failed to read row from BigQuery: %w", err)
 		}
-		podData := asset.Resource.Data
-		containers := podData.Fields["spec"].GetStructValue().Fields["containers"].GetListValue()
-		for _, container := range containers.Values {
-			image := container.GetStructValue().Fields["image"].GetStringValue()
-			s.logger.Debug("getting GKE pod images", "image", image)
-			err := podFilter.Add(image)
-			if err != nil {
-				return nil, http.StatusInternalServerError, fmt.Errorf("failed to parse container image: %w", err)
-			}
+		image, ok := values[0].(string)
+		if !ok {
+			return nil, http.StatusInternalServerError, fmt.Errorf("failed to parse row from BigQuery: %v", values[0])
 		}
-	}
-	// gcloud beta asset list --organization=$ORGANIZATION_ID --asset-types='run.googleapis.com/Service' --content-type='resource' --format="value(resource.data.spec.template.spec.containers.image)"
-	it = assetClient.ListAssets(ctx, &assetpb.ListAssetsRequest{
-		Parent:      fmt.Sprintf("organizations/%s", organizationId),
-		AssetTypes:  []string{"run.googleapis.com/Service"},
-		ContentType: assetpb.ContentType_RESOURCE,
-		PageSize:    1000,
-	})
-	for true {
-		asset, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
+		err = podFilter.Add(image)
 		if err != nil {
-			return nil, http.StatusInternalServerError, fmt.Errorf("failed to list pods via cloudasset service: %w", err)
-		}
-		podData := asset.Resource.Data
-		containers := podData.Fields["spec"].GetStructValue().Fields["template"].GetStructValue().Fields["spec"].GetStructValue().Fields["containers"].GetListValue()
-		for _, container := range containers.Values {
-			image := container.GetStructValue().Fields["image"].GetStringValue()
-			s.logger.Debug("getting Cloud Run service images", "image", image)
-			err := podFilter.Add(image)
-			if err != nil {
-				return nil, http.StatusInternalServerError, fmt.Errorf("failed to parse container image: %w", err)
-			}
+			return nil, http.StatusInternalServerError, fmt.Errorf("failed to parse container image: %w", err)
 		}
 	}
+
+	bigQueryClient.Close()
+
+	reposAdded := 0
+	refsAdded := 0
+	for _, refs := range podFilter.(*AssetPodFilter).images {
+		reposAdded++
+		refsAdded += len(refs)
+	}
+	s.logger.Info("added recently seen container images to filter", "repoCount", reposAdded, "imageRefCount", refsAdded)
 
 	if p.Recursive {
 		s.logger.Debug("gathering child repositories recursively")
@@ -293,7 +277,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 			"out", allRepos)
 
 		// This is safe because ListChildRepositories is guaranteed to include at
-		// least the list repos givenh to it.
+		// least the list repos given to it.
 		repos = allRepos
 	}
 
@@ -317,7 +301,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 		}
 	}
 
-	s.logger.Info("deleted refs", "refs", deleted)
+	s.logger.Info("deleted refs", "refs", deleted, "dryRun", p.DryRun)
 
 	return deleted, http.StatusOK, nil
 }
