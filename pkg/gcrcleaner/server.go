@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -143,7 +142,7 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 		return nil, 500, fmt.Errorf("failed to decode payload as JSON: %w", err)
 	}
 
-	s.logger.Debug("starting clean request",
+	s.logger.Info("starting clean request",
 		"version", version.HumanVersion,
 		"payload", p)
 
@@ -186,33 +185,6 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 	if err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get default credentials: %w", err)
 	}
-	// Get Organization ID from Project ID
-	// https://stackoverflow.com/a/59753423
-	cloudresourcemanagerService, err := cloudresourcemanager.NewService(ctx)
-	if err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create new cloudresourcemanager service: %w", err)
-	}
-	projectsService := cloudresourcemanagerService.Projects
-	projectID := credentials.ProjectID
-	if projectID == "" {
-		projectID = os.Getenv("GCP_PROJECT")
-	}
-	s.logger.Debug("getting project ancestry", "project", projectID)
-	ancestry, err := projectsService.GetAncestry(projectID, &cloudresourcemanager.GetAncestryRequest{}).Do()
-	if err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get project ancestry: %w", err)
-	}
-	organizationId := ""
-	for _, ancestor := range ancestry.Ancestor {
-		if ancestor.ResourceId.Type == "organization" {
-			organizationId = ancestor.ResourceId.Id
-			break
-		}
-	}
-	if organizationId == "" {
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to organization id")
-	}
-	s.logger.Debug("getting project ancestry", "organization", organizationId)
 
 	// Gather all the repositories.
 	repos := make([]string, 0, len(p.Repos))
@@ -224,6 +196,8 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 
 	// List and collect container images from GKE pods and Cloud Run services that were seen in the past week.
 	// We pull this from Cloud Asset Inventory data exported to BigQuery, because calling the CAI API directly is too slow.
+	s.logger.Info("fetching recently seen container images from BigQuery...")
+
 	podFilter := NewAssetPodFilter(repos)
 
 	recentlySeenImagesQuery := `SELECT DISTINCT JSON_VALUE(container, '$.image') as image
@@ -250,7 +224,7 @@ FROM (
   WHERE readTime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 day)
 ), UNNEST(containers) AS container;`
 
-	bigQueryClient, err := bigquery.NewClient(ctx, projectID)
+	bigQueryClient, err := bigquery.NewClient(ctx, credentials.ProjectID)
 	if err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create new BigQuery client: %w", err)
 	}
@@ -282,6 +256,7 @@ FROM (
 	}
 
 	bigQueryClient.Close()
+	s.logger.Info("added recently seen container images to filter", "count", len(podFilter.(*AssetPodFilter).images))
 
 	if p.Recursive {
 		s.logger.Debug("gathering child repositories recursively")
@@ -319,7 +294,7 @@ FROM (
 		}
 	}
 
-	s.logger.Info("deleted refs", "refs", deleted)
+	s.logger.Info("deleted refs", "refs", deleted, "dryRun", p.DryRun)
 
 	return deleted, http.StatusOK, nil
 }
