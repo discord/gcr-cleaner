@@ -256,7 +256,14 @@ FROM (
 	}
 
 	bigQueryClient.Close()
-	s.logger.Info("added recently seen container images to filter", "count", len(podFilter.(*AssetPodFilter).images))
+
+	reposAdded := 0
+	refsAdded := 0
+	for _, refs := range podFilter.(*AssetPodFilter).images {
+		reposAdded++
+		refsAdded += len(refs)
+	}
+	s.logger.Info("added recently seen container images to filter", "repoCount", reposAdded, "imageRefCount", refsAdded)
 
 	if p.Recursive {
 		s.logger.Debug("gathering child repositories recursively")
