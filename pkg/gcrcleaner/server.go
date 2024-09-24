@@ -200,7 +200,8 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 
 	podFilter := NewAssetPodFilter(repos)
 
-	recentlySeenImagesQuery := `SELECT DISTINCT JSON_VALUE(container, '$.image') as image
+	recentlySeenImagesQuery := `
+SELECT DISTINCT JSON_VALUE(container, '$.image') as image
 FROM (
   SELECT
     CASE asset_type
@@ -208,8 +209,11 @@ FROM (
         JSON_QUERY_ARRAY(
           resource.data,'$.spec.containers'
         ),
-        JSON_QUERY_ARRAY(
-          resource.data,'$.spec.initContainers'
+        COALESCE(
+          JSON_QUERY_ARRAY(
+            resource.data,'$.spec.initContainers'
+          ),
+          []
         )
       )
       WHEN "run.googleapis.com/Service" THEN JSON_QUERY_ARRAY(
