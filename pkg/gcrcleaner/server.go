@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -200,7 +201,10 @@ func (s *Server) clean(ctx context.Context, r io.ReadCloser) (map[string][]strin
 
 	podFilter := NewAssetPodFilter(repos)
 
-	recentlySeenImagesQuery := `
+	cloudAssetInventoryTableName := os.Getenv("CLOUD_ASSET_INVENTORY_TABLE_NAME")
+	cloudAssetInventoryTableLocation := os.Getenv("CLOUD_ASSET_INVENTORY_TABLE_LOCATION")
+
+	recentlySeenImagesQuery := fmt.Sprintf(`
 SELECT DISTINCT JSON_VALUE(container, '$.image') as image
 FROM (
   SELECT
@@ -224,9 +228,9 @@ FROM (
       )
     END
     AS containers
-  FROM discord-security.path_to_prod_metrics.running_images
+  FROM %s
   WHERE readTime >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 day)
-), UNNEST(containers) AS container;`
+), UNNEST(containers) AS container;`, cloudAssetInventoryTableName)
 
 	bigQueryClient, err := bigquery.NewClient(ctx, credentials.ProjectID)
 	if err != nil {
@@ -234,7 +238,7 @@ FROM (
 	}
 
 	query := bigQueryClient.Query(recentlySeenImagesQuery)
-	query.Location = "US" // Location must match that of the dataset(s) referenced in the query.
+	query.Location = cloudAssetInventoryTableLocation
 	queryIterator, err := query.Read(ctx)
 	if err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get query results from BigQuery: %w", err)
