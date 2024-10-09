@@ -214,6 +214,13 @@ func (c *Cleaner) Clean(ctx context.Context, repo string, since time.Time, keep 
 						return "", nil
 					}
 
+					if strings.Contains(err.Error(), "MANIFEST_UNKNOWN") {
+						c.logger.Warn("failed to delete digest because it does not exist",
+							"repo", repo,
+							"digest", digest)
+						return "", nil
+					}
+
 					return "", fmt.Errorf("failed to delete digest %s: %w", digest, err)
 				}
 			}
