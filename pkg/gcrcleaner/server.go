@@ -220,6 +220,17 @@ FROM (
           []
         )
       )
+      WHEN "batch.k8s.io/CronJob" THEN ARRAY_CONCAT(
+        JSON_QUERY_ARRAY(
+          resource.data,'$.spec.jobTemplate.spec.template.spec.containers'
+        ),
+        COALESCE(
+          JSON_QUERY_ARRAY(
+            resource.data,'$.spec.jobTemplate.spec.template.spec.initContainers'
+          ),
+          []
+        )
+      )
       WHEN "run.googleapis.com/Service" THEN JSON_QUERY_ARRAY(
         resource.data,'$.spec.template.spec.containers'
       )
