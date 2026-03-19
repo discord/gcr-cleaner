@@ -255,12 +255,14 @@ FROM (
 		return nil, http.StatusInternalServerError, fmt.Errorf("failed to get query results from BigQuery: %w", err)
 	}
 
+	seenAny := false
 	for {
 		var values []bigquery.Value
 		err := queryIterator.Next(&values)
 		if err == iterator.Done {
 			break
 		}
+		seenAny = true
 		if err != nil {
 			return nil, http.StatusInternalServerError, fmt.Errorf("failed to read row from BigQuery: %w", err)
 		}
@@ -275,6 +277,10 @@ FROM (
 	}
 
 	bigQueryClient.Close()
+
+	if !seenAny {
+		return nil, http.StatusInternalServerError, fmt.Errorf("zero filtered images found! refusing to continue")
+	}
 
 	reposAdded := 0
 	refsAdded := 0
